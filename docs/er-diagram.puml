@@ -1,0 +1,93 @@
+@startuml
+title Avito.Кухня — схема данных
+hide methods
+hide stereotypes
+
+entity restaurants {
+  * id : uuid <<PK>>
+  --
+  name : text
+  address : text
+  status : open | closed
+  callback_url : text
+  partner_token_hash : char(64) <<UQ>>
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity menu_items {
+  * id : uuid <<PK>>
+  --
+  restaurant_id : uuid <<FK>>
+  external_id : text
+  name : text
+  price_minor : bigint
+  currency : char(3)
+  stock_quantity : integer
+  is_available : boolean
+  version : bigint
+  --
+  UNIQUE (restaurant_id, external_id)
+}
+
+entity orders {
+  * id : uuid <<PK>>
+  --
+  avito_user_id : text
+  restaurant_id : uuid <<FK>>
+  idempotency_key : text
+  request_hash : char(64)
+  status : text
+  customer_name : text
+  customer_phone : text
+  delivery_address : text
+  total_price_minor : bigint
+  currency : char(3)
+  --
+  UNIQUE (avito_user_id, idempotency_key)
+}
+
+entity order_items {
+  * id : uuid <<PK>>
+  --
+  order_id : uuid <<FK>>
+  menu_item_id : uuid <<FK>>
+  external_id_snapshot : text
+  name_snapshot : text
+  unit_price_minor : bigint
+  quantity : integer
+  subtotal_minor : bigint
+}
+
+entity order_status_events {
+  * event_id : uuid <<PK>>
+  --
+  order_id : uuid <<FK>>
+  actor : text
+  from_status : text
+  to_status : text
+  created_at : timestamptz
+}
+
+entity outbox_events {
+  * id : uuid <<PK>>
+  --
+  aggregate_id : uuid <<FK>>
+  sequence_no : integer
+  event_type : text
+  destination_url : text
+  payload : jsonb
+  status : text
+  attempts : integer
+  available_at : timestamptz
+  --
+  UNIQUE (aggregate_id, sequence_no)
+}
+
+restaurants ||--o{ menu_items
+restaurants ||--o{ orders
+orders ||--|{ order_items
+menu_items ||--o{ order_items
+orders ||--o{ order_status_events
+orders ||--o{ outbox_events
+@enduml

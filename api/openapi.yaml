@@ -1,0 +1,648 @@
+openapi: 3.0.3
+info:
+  title: Avito Kitchen API
+  version: 1.0.0
+  description: |
+    MVP API for the Avito.Kitchen web client and restaurant integrations.
+    Monetary values use integer minor units: `59900` means 599 RUB.
+servers:
+  - url: http://localhost:8080
+    description: Local Kitchen service
+security: []
+tags:
+  - name: Public
+    description: Restaurant discovery and menu for the web client
+  - name: Orders
+    description: User checkout and order tracking
+  - name: Partner
+    description: Closed restaurant integration API
+  - name: Health
+    description: Container health probes
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: liveness
+      summary: Check that the Kitchen process is alive
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: readiness
+      summary: Check that Kitchen and its database are ready
+      responses:
+        "200":
+          description: Service and database are ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/restaurants:
+    get:
+      tags: [Public]
+      operationId: listRestaurants
+      summary: List restaurants currently accepting orders
+      responses:
+        "200":
+          description: Open restaurants
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restaurants]
+                properties:
+                  restaurants:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Restaurant"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/restaurants/{restaurantId}/menu:
+    get:
+      tags: [Public]
+      operationId: getRestaurantMenu
+      summary: Get available in-stock menu items
+      parameters:
+        - $ref: "#/components/parameters/RestaurantId"
+      responses:
+        "200":
+          description: Restaurant menu
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MenuItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/orders:
+    post:
+      tags: [Orders]
+      operationId: createOrder
+      summary: Create an order and reserve stock
+      description: |
+        The backend reads current menu prices, calculates the total and reserves
+        stock in one database transaction. A retry with the same user and
+        Idempotency-Key returns the original order. Reusing the key with another
+        body returns 409.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "200":
+          description: Idempotent replay of an existing order
+          headers:
+            Idempotency-Replayed:
+              schema:
+                type: string
+                enum: ["true"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/orders/{orderId}:
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: Get an order belonging to the current Avito user
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/orders/{orderId}/cancel:
+    post:
+      tags: [Orders]
+      operationId: cancelOrder
+      summary: Cancel an order before the restaurant accepts it
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Cancelled order; reserved stock has been restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /partner/v1/menu-items/{externalId}:
+    put:
+      tags: [Partner]
+      security:
+        - partnerToken: []
+      operationId: upsertMenuItem
+      summary: Create or replace a restaurant menu item
+      description: |
+        Without If-None-Match this replaces the available stock assigned to the
+        Kitchen channel; it is not the restaurant's total physical inventory.
+        If-None-Match:* creates only and never overwrites a reservation or edit.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: ["*"]
+        - name: externalId
+          in: path
+          required: true
+          description: Stable item identifier in the restaurant system
+          schema:
+            type: string
+            maxLength: 128
+          example: margherita
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertMenuItemRequest"
+      responses:
+        "200":
+          description: Current menu item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "412":
+          description: If-None-Match precondition failed because the menu item already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /partner/v1/restaurant/status:
+    patch:
+      tags: [Partner]
+      security:
+        - partnerToken: []
+      operationId: setRestaurantStatus
+      summary: Open or close the authenticated restaurant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [open, closed]
+      responses:
+        "200":
+          description: Updated restaurant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /partner/v1/orders/{orderId}:
+    get:
+      tags: [Partner]
+      security:
+        - partnerToken: []
+      operationId: getPartnerOrder
+      summary: Reconcile one order with Kitchen
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order owned by the authenticated restaurant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /partner/v1/orders/{orderId}/status:
+    post:
+      tags: [Partner]
+      security:
+        - partnerToken: []
+      operationId: updateOrderStatus
+      summary: Apply an idempotent restaurant status event
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, status]
+              properties:
+                event_id:
+                  type: string
+                  format: uuid
+                  description: Stable identifier reused for retries
+                status:
+                  $ref: "#/components/schemas/PartnerOrderStatus"
+      responses:
+        "200":
+          description: Current order after applying the event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    partnerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque partner token
+  parameters:
+    UserId:
+      name: X-Avito-User-ID
+      in: header
+      required: true
+      description: |
+        Opaque identifier from the main Avito identity context. Authentication is
+        intentionally out of MVP scope; in production an API gateway would set it.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: user-demo-1
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: order-demo-001
+    RestaurantId:
+      name: restaurantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 00000000-0000-0000-0000-000000000001
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid partner token
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found or not owned by the caller
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Business conflict such as insufficient stock or invalid status transition
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: A required dependency is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: insufficient_stock
+            message:
+              type: string
+              example: insufficient stock for the requested menu item
+    Restaurant:
+      type: object
+      required: [id, name, description, address, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        address:
+          type: string
+        status:
+          type: string
+          enum: [open, closed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MenuItem:
+      type: object
+      required:
+        - id
+        - restaurant_id
+        - external_id
+        - name
+        - description
+        - price_minor
+        - currency
+        - stock_quantity
+        - is_available
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        restaurant_id:
+          type: string
+          format: uuid
+        external_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 59900
+        currency:
+          type: string
+          enum: [RUB]
+        stock_quantity:
+          type: integer
+          minimum: 0
+        is_available:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [restaurant_id, customer_name, customer_phone, delivery_address, items]
+      properties:
+        restaurant_id:
+          type: string
+          format: uuid
+        customer_name:
+          type: string
+          maxLength: 200
+        customer_phone:
+          type: string
+          maxLength: 32
+        delivery_address:
+          type: string
+          maxLength: 500
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [menu_item_id, quantity]
+            properties:
+              menu_item_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 100
+    UpsertMenuItemRequest:
+      type: object
+      additionalProperties: false
+      required: [name, price_minor, currency, stock_quantity, is_available]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        price_minor:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100000000
+        currency:
+          type: string
+          enum: [RUB]
+        stock_quantity:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        is_available:
+          type: boolean
+    OrderStatus:
+      type: string
+      enum:
+        - pending_restaurant
+        - accepted
+        - rejected
+        - preparing
+        - ready
+        - completed
+        - cancelled
+    PartnerOrderStatus:
+      type: string
+      enum: [accepted, rejected, preparing, ready, completed]
+    OrderItem:
+      type: object
+      required: [menu_item_id, external_id, name, unit_price_minor, quantity, subtotal_minor]
+      properties:
+        menu_item_id:
+          type: string
+          format: uuid
+        external_id:
+          type: string
+        name:
+          type: string
+        unit_price_minor:
+          type: integer
+          format: int64
+        quantity:
+          type: integer
+        subtotal_minor:
+          type: integer
+          format: int64
+    Order:
+      type: object
+      required:
+        - id
+        - avito_user_id
+        - restaurant_id
+        - status
+        - customer_name
+        - customer_phone
+        - delivery_address
+        - total_price_minor
+        - currency
+        - items
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        avito_user_id:
+          type: string
+        restaurant_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        customer_name:
+          type: string
+        customer_phone:
+          type: string
+        delivery_address:
+          type: string
+        total_price_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum: [RUB]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

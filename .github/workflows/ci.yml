@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: kitchen_test
+          POSTGRES_USER: kitchen
+          POSTGRES_PASSWORD: kitchen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kitchen -d kitchen_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://kitchen:kitchen@localhost:5432/kitchen_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd internal migrations)"
+      - name: Static analysis
+        run: go vet ./...
+      - name: Unit tests
+        run: go test -p 1 -race -coverprofile=coverage.out ./...
+      - name: Build
+        run: go build ./...
+      - name: Start Compose from clean containers
+        run: docker compose -p kitchen-ci up --build -d --wait
+      - name: Full API smoke through Compose
+        run: docker compose -p kitchen-ci --profile test run --rm smoke
+      - name: Compose logs
+        if: failure()
+        run: docker compose -p kitchen-ci logs --no-color
+      - name: Stop Compose
+        if: always()
+        run: docker compose -p kitchen-ci down -v

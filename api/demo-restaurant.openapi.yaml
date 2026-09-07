@@ -1,0 +1,148 @@
+openapi: 3.0.3
+info:
+  title: Demo Restaurant API
+  version: 1.0.0
+  description: API exposed by the in-repository demonstration restaurant.
+servers:
+  - url: http://localhost:8081
+security: []
+paths:
+  /health/live:
+    get:
+      operationId: demoLiveness
+      summary: Check that the demo restaurant process is alive
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /health/ready:
+    get:
+      operationId: demoReadiness
+      summary: Check that the initial menu synchronization completed
+      responses:
+        "200":
+          description: Demo restaurant is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: Menu has not been synchronized yet
+  /integration/v1/events:
+    post:
+      operationId: receiveKitchenEvent
+      summary: Receive an idempotent Kitchen order event
+      security:
+        - callbackToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationEvent"
+      responses:
+        "202":
+          description: Event accepted
+        "200":
+          description: Event was already processed
+        "400":
+          description: Invalid event
+        "401":
+          description: Invalid callback token
+  /demo/v1/orders:
+    get:
+      security:
+        - operatorToken: []
+      operationId: listDemoOrders
+      summary: List orders received by the demo restaurant
+      responses:
+        "401":
+          description: Missing or invalid operator token
+        "200":
+          description: Received orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: "./openapi.yaml#/components/schemas/Order"
+  /demo/v1/orders/{orderId}/status:
+    post:
+      security:
+        - operatorToken: []
+      operationId: changeDemoOrderStatus
+      summary: Simulate a restaurant operator changing an order status
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [accepted, rejected, preparing, ready, completed]
+      responses:
+        "401":
+          description: Missing or invalid operator token
+        "200":
+          description: Status accepted by Kitchen
+          content:
+            application/json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/Order"
+        "400":
+          description: Invalid input
+        "404":
+          description: Order is unknown to Kitchen or belongs to another restaurant
+        "409":
+          description: Invalid status transition
+        "502":
+          description: Kitchen could not apply the update
+components:
+  securitySchemes:
+    operatorToken:
+      type: http
+      scheme: bearer
+      description: Same local partner token used by the demo adapter
+    callbackToken:
+      type: http
+      scheme: bearer
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    IntegrationEvent:
+      type: object
+      required: [event_id, event_type, occurred_at, order]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: [order.created, order.cancelled]
+        occurred_at:
+          type: string
+          format: date-time
+          description: Nonzero event timestamp; created events carry pending_restaurant, cancellation events carry cancelled
+        order:
+          $ref: "./openapi.yaml#/components/schemas/Order"

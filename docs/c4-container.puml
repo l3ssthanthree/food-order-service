@@ -1,0 +1,62 @@
+@startuml
+title Avito.Кухня — C4 Container (Level 2)
+
+skinparam shadowing false
+skinparam rectangle {
+  BackgroundColor<<Person>> #08427B
+  FontColor<<Person>> white
+  BorderColor<<Person>> #052E56
+  BackgroundColor<<System>> #1168BD
+  FontColor<<System>> white
+  BorderColor<<System>> #0B4884
+  BackgroundColor<<Container>> #438DD5
+  FontColor<<Container>> white
+  BorderColor<<Container>> #2E6295
+  BackgroundColor<<Database>> #438DD5
+  FontColor<<Database>> white
+  BorderColor<<Database>> #2E6295
+  BackgroundColor<<External>> #999999
+  FontColor<<External>> white
+}
+
+actor user as "Пользователь" <<Person>>
+actor operator as "Оператор заведения" <<Person>>
+rectangle web as "Web-клиент Авито.Кухни\n[вне MVP]" <<External>>
+
+rectangle kitchen_boundary as "Авито.Кухня" <<System>> {
+  rectangle api as "Kitchen API\n[Go, REST]\nПубличный и Partner API,\nбизнес-правила, outbox dispatcher" <<Container>>
+  database db as "Kitchen DB\n[PostgreSQL]\nМеню, заказы, остатки,\nистория статусов, outbox" <<Database>>
+}
+
+rectangle restaurant_boundary as "Demo Restaurant" <<System>> {
+  rectangle restaurant as "Restaurant Adapter\n[Go, REST]\nСинхронизация меню, приём событий,\nпанель-имитатор оператора" <<Container>>
+}
+
+note right of restaurant
+  Заказы и дедупликация хранятся
+  в памяти процесса; теряются при рестарте.
+  Доставка пользователю имитируется оператором.
+end note
+
+user --> web : Ищет еду и оформляет заказ
+web --> api : HTTP/JSON\nPublic API
+operator --> restaurant : HTTP/JSON + Bearer token\nСмотрит заказ и меняет статус
+restaurant --> api : HTTP/JSON\nPartner API + Bearer token
+api --> restaurant : REST callback\nс повторами и event_id
+api --> db : SQL-транзакции
+
+note bottom of api
+  Docker Compose использует HTTP в локальной сети.
+  TLS-терминация и доверенный user ID gateway — вне MVP.
+  Миграции выполняет одноразовый контейнер migrate.
+end note
+
+legend right
+  |= Стереотип |= Значение |
+  | <<Person>> | Пользователь системы |
+  | <<System>> | Программная система |
+  | <<Container>> | Запускаемый сервис |
+  | <<Database>> | Хранилище |
+  | <<External>> | Контекст вне реализации MVP |
+endlegend
+@enduml

@@ -1,0 +1,41 @@
+@startuml
+title Создание и исполнение заказа
+actor User
+participant Web
+participant "Kitchen API" as Kitchen
+database PostgreSQL as DB
+participant "Outbox dispatcher" as Outbox
+participant "Demo Restaurant" as Restaurant
+
+User -> Web : Оформить заказ
+Web -> Kitchen : POST /orders (X-Avito-User-ID, Idempotency-Key)
+Kitchen -> DB : BEGIN + advisory lock
+Kitchen -> DB : restaurant FOR SHARE; menu_items FOR UPDATE
+Kitchen -> DB : INSERT order, snapshots, status event and outbox; UPDATE stock
+Kitchen -> DB : COMMIT
+Kitchen --> Web : 201 pending_restaurant
+
+Outbox -> DB : claim event FOR UPDATE SKIP LOCKED
+Outbox -> Restaurant : POST /integration/v1/events\norder.created + event_id + Bearer token
+alt Restaurant unavailable
+  Outbox -> DB : reschedule with backoff
+else Received
+  Restaurant --> Outbox : 202 Accepted
+  Outbox -> DB : mark delivered
+  Restaurant -> Kitchen : POST status accepted + event_id + Bearer token
+  Kitchen -> DB : validate transition + persist event
+  Kitchen --> Restaurant : 200 accepted
+  note over Restaurant, Kitchen
+    При потерянном ответе demo повторяет запрос
+    с тем же event_id и сверяет GET заказа.
+  end note
+end
+
+Web -> Kitchen : GET /orders/{id}
+Kitchen --> Web : current status
+note over Web, Restaurant
+  preparing: приготовление; ready: готов к доставке.
+  completed подтверждает вручение еды пользователю.
+  Доставку организует заведение; demo имитирует её.
+end note
+@enduml
