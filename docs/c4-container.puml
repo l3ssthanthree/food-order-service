@@ -1,5 +1,5 @@
 @startuml
-title Avito.Кухня — C4 Container (Level 2)
+title Food Order Service - C4 Container (Level 2)
 
 skinparam shadowing false
 skinparam rectangle {
@@ -21,9 +21,9 @@ skinparam rectangle {
 
 actor user as "Пользователь" <<Person>>
 actor operator as "Оператор заведения" <<Person>>
-rectangle web as "Web-клиент Авито.Кухни\n[вне MVP]" <<External>>
+rectangle web as "Web-клиент\n[вне MVP]" <<External>>
 
-rectangle kitchen_boundary as "Авито.Кухня" <<System>> {
+rectangle kitchen_boundary as "Food Order Service" <<System>> {
   rectangle api as "Kitchen API\n[Go, REST]\nПубличный и Partner API,\nбизнес-правила, outbox dispatcher" <<Container>>
   database db as "Kitchen DB\n[PostgreSQL]\nМеню, заказы, остатки,\nистория статусов, outbox" <<Database>>
 }

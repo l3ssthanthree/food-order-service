@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: Avito Kitchen API
+  title: Food Order Service API
   version: 1.0.0
   description: |
-    MVP API for the Avito.Kitchen web client and restaurant integrations.
+    Educational API for food orders and restaurant integrations.
     Monetary values use integer minor units: `59900` means 599 RUB.
 servers:
   - url: http://localhost:8080
@@ -144,7 +144,7 @@ paths:
     get:
       tags: [Orders]
       operationId: getOrder
-      summary: Get an order belonging to the current Avito user
+      summary: Get an order belonging to the current user
       parameters:
         - $ref: "#/components/parameters/OrderId"
         - $ref: "#/components/parameters/UserId"
@@ -342,7 +342,7 @@ components:
       in: header
       required: true
       description: |
-        Opaque identifier from the main Avito identity context. Authentication is
+        Opaque identifier supplied by an external identity context. Authentication is
         intentionally out of MVP scope; in production an API gateway would set it.
       schema:
         type: string

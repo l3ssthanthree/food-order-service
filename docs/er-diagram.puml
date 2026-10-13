@@ -1,5 +1,5 @@
 @startuml
-title Avito.Кухня — схема данных
+title Food Order Service - схема данных
 hide methods
 hide stereotypes
 

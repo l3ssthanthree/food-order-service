@@ -1,5 +1,5 @@
 @startuml
-title CJM пользователя Авито.Кухни
+title CJM пользователя - Food Order Service
 skinparam shadowing false
 skinparam activity {
   BackgroundColor #EAF3FF
@@ -7,7 +7,7 @@ skinparam activity {
 }
 
 start
-:Поиск: открывает Авито.Кухню,
+:Поиск: открывает каталог заведений,
 выбирает заведение из списка;
 note right
   Потребность: найти еду, которую можно заказать сейчас.

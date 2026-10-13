@@ -1,5 +1,5 @@
 @startuml
-title CJM заведения в Авито.Кухне
+title CJM заведения - Food Order Service
 skinparam shadowing false
 skinparam activity {
   BackgroundColor #EAF7EF
